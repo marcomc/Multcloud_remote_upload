@@ -1,0 +1,45 @@
+# MultCloud CLI Configuration
+# Location: ~/.config/multcloud/config.toml
+#
+# This file stores your MultCloud credentials and preferences.
+# Permissions should be 600 (owner read/write only).
+#
+# Authentication flow:
+#   1. Email + password → POST /user/sign_in_ (AES-key signed)
+#   2. MultCloud returns session cookies + user salt
+#   3. All subsequent requests use salt-based MD5 signing + cookies
+#   4. Session persisted to session_dir/session.json for reuse
+#   5. If session expires, auto re-login using stored credentials
+#   6. CAPTCHA may be required — image saved for manual entry
+
+[auth]
+# MultCloud account email (required)
+email = "__EMAIL__"
+
+# MultCloud account password (optional — prompted at login if blank)
+# WARNING: stored in plaintext — keep this file private (chmod 600)
+password = "__PASSWORD__"
+
+[api]
+# MultCloud API base URL (change only if MultCloud migrates)
+base_url = "__API_URL__"
+
+# Request timeout in seconds
+timeout = 60
+
+# Enable verbose HTTP logging (true/false)
+debug = false
+
+[session]
+# Directory for session persistence (cookies + user salt)
+session_dir = "__SESSION_DIR__"
+
+# Auto re-login when session expires (true/false)
+auto_relogin = true
+
+[output]
+# Default output format: "table" or "json"
+format = "table"
+
+# Show compact JSON (single line) instead of pretty-printed
+compact_json = false

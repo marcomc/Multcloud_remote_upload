@@ -11,11 +11,16 @@
 - [x] Create CLI usage guide
 - [x] Create reverse-engineering script
 - [x] Create project tracking files (AGENTS.md, TODO.md, CHANGELOG.md)
+- [x] Add unit tests for crypto module (17 tests)
+- [x] Add unit tests for config module (18 tests)
+- [x] Add `--config` option for custom config file location
+- [x] Create Makefile (install, uninstall, test, lint, fmt, clean)
+- [x] Create TOML config system with interactive install
+- [x] Install CLI as executable in `~/.local/bin`
 
 ## To Do
 
 ### High Priority
-- [ ] Add unit tests for crypto module (known input/output pairs)
 - [ ] Add integration tests (with mock server or real credentials)
 - [ ] Test login flow with real MultCloud account
 - [ ] Test CAPTCHA handling flow
@@ -31,7 +36,6 @@
 - [ ] Add filter options for task creation (file type, size, date filters)
 - [ ] Add progress bar for long-running operations
 - [ ] Add retry logic with exponential backoff for transient failures
-- [ ] Add `--config` option for custom config file location
 
 ### Low Priority
 - [ ] Add shell completions (bash, zsh, fish)

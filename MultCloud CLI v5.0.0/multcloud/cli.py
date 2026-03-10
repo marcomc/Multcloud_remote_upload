@@ -60,14 +60,13 @@ import getpass
 import json
 import logging
 import sys
-from pathlib import Path
 from typing import Optional
 
 from .client import MultCloudClient, MultCloudError
+from .config import MultCloudConfig, load_config
 
-SESSION_DIR = Path.home() / ".multcloud"
-SESSION_FILE = SESSION_DIR / "session.json"
-CONFIG_FILE = SESSION_DIR / "config.json"
+# Module-level config reference, set during main()
+_config: Optional[MultCloudConfig] = None
 
 # Cloud type display names
 CLOUD_TYPES = {
@@ -114,9 +113,11 @@ CLOUD_TYPES = {
 
 def get_client() -> MultCloudClient:
     """Create a client and load any saved session."""
-    client = MultCloudClient()
-    if SESSION_FILE.exists():
-        client.load_session(SESSION_FILE)
+    cfg = _config or MultCloudConfig()
+    client = MultCloudClient(api_base=cfg.api_base_url)
+    session_file = cfg.session_file
+    if session_file.exists():
+        client.load_session(session_file)
     return client
 
 
@@ -155,7 +156,7 @@ def print_table(rows: list, headers: list):
         # Pad row to match headers length
         while len(row) < len(headers):
             row.append("")
-        print(fmt.format(*row[:len(headers)]))
+        print(fmt.format(*row[: len(headers)]))
 
 
 def format_size(size) -> str:
@@ -176,12 +177,14 @@ def format_size(size) -> str:
 
 def cmd_login(args, client):
     """Handle login command."""
-    email = args.email or input("Email: ")
-    password = args.password or getpass.getpass("Password: ")
+    cfg = _config or MultCloudConfig()
+    email = args.email or cfg.email or input("Email: ")
+    password = args.password or cfg.password or getpass.getpass("Password: ")
 
     try:
         user = client.login(email, password)
-        client.save_session(SESSION_FILE)
+        cfg.session_dir.mkdir(parents=True, exist_ok=True)
+        client.save_session(cfg.session_file)
         print(f"Logged in as {user.get('username', user.get('email', email))}")
         if user.get("vip"):
             print(f"  Plan: {user.get('payType', 'N/A')} (Level {user.get('payLevel', 'N/A')})")
@@ -189,18 +192,19 @@ def cmd_login(args, client):
         if "verifyCode" in str(e.reason):
             print("CAPTCHA required. Generating...")
             vkey, image_data = client.generate_captcha()
-            captcha_path = SESSION_DIR / "captcha.png"
+            captcha_path = cfg.session_dir / "captcha.png"
             captcha_path.parent.mkdir(parents=True, exist_ok=True)
             captcha_path.write_bytes(image_data)
             print(f"CAPTCHA image saved to: {captcha_path}")
             try:
                 import subprocess
+
                 subprocess.Popen(["open", str(captcha_path)])
             except Exception:
                 pass
             vcode = input("Enter CAPTCHA code: ")
             user = client.login_with_captcha(email, password, vkey, vcode)
-            client.save_session(SESSION_FILE)
+            client.save_session(cfg.session_file)
             print(f"Logged in as {user.get('username', user.get('email', email))}")
         else:
             raise
@@ -209,12 +213,13 @@ def cmd_login(args, client):
 def cmd_logout(args, client):
     """Handle logout command."""
     ensure_logged_in(client)
+    cfg = _config or MultCloudConfig()
     try:
         client.logout()
     except MultCloudError:
         pass
-    if SESSION_FILE.exists():
-        SESSION_FILE.unlink()
+    if cfg.session_file.exists():
+        cfg.session_file.unlink()
     print("Logged out.")
 
 
@@ -241,12 +246,14 @@ def cmd_drives_list(args, client):
     rows = []
     for d in drives:
         cloud = d.get("cloudType", d.get("appName", "unknown"))
-        rows.append([
-            d.get("id", ""),
-            CLOUD_TYPES.get(cloud, cloud),
-            d.get("name", d.get("email", "")),
-            d.get("email", ""),
-        ])
+        rows.append(
+            [
+                d.get("id", ""),
+                CLOUD_TYPES.get(cloud, cloud),
+                d.get("name", d.get("email", "")),
+                d.get("email", ""),
+            ]
+        )
     print_table(rows, ["ID", "Type", "Name", "Account"])
 
 
@@ -291,12 +298,14 @@ def cmd_files_list(args, client):
     rows = []
     for f in files:
         ftype = "DIR" if f.get("dir") else "FILE"
-        rows.append([
-            f.get("id", f.get("fileId", "")),
-            ftype,
-            format_size(f.get("size", 0)),
-            f.get("name", ""),
-        ])
+        rows.append(
+            [
+                f.get("id", f.get("fileId", "")),
+                ftype,
+                format_size(f.get("size", 0)),
+                f.get("name", ""),
+            ]
+        )
     print_table(rows, ["ID", "Type", "Size", "Name"])
 
 
@@ -370,13 +379,15 @@ def cmd_tasks_list(args, client):
     rows = []
     for t in tasks:
         ttype = type_names.get(t.get("type"), str(t.get("type", "?")))
-        rows.append([
-            t.get("id", ""),
-            ttype,
-            t.get("name", t.get("n", "")),
-            t.get("result", t.get("status", "")),
-            format_size(t.get("filesize", 0)),
-        ])
+        rows.append(
+            [
+                t.get("id", ""),
+                ttype,
+                t.get("name", t.get("n", "")),
+                t.get("result", t.get("status", "")),
+                format_size(t.get("filesize", 0)),
+            ]
+        )
     print_table(rows, ["ID", "Type", "Name", "Status", "Size"])
 
 
@@ -395,7 +406,9 @@ def cmd_tasks_add_transfer(args, client):
     options = {}
     if args.schedule:
         options["scheduleTime"] = args.schedule
-    result = client.tasks_add(1, from_items, to_items, name=args.name or "", options=options or None)
+    result = client.tasks_add(
+        1, from_items, to_items, name=args.name or "", options=options or None
+    )
     print("Transfer task created:")
     print_json(result)
 
@@ -408,7 +421,9 @@ def cmd_tasks_add_sync(args, client):
     options = {}
     if args.sync_mode:
         options["syncMode"] = args.sync_mode
-    result = client.tasks_add(6, from_items, to_items, name=args.name or "", options=options or None)
+    result = client.tasks_add(
+        6, from_items, to_items, name=args.name or "", options=options or None
+    )
     print("Sync task created:")
     print_json(result)
 
@@ -669,6 +684,52 @@ def cmd_raw(args, client):
     print_json(result)
 
 
+def cmd_config_show(args, client):
+    """Show current configuration."""
+    cfg = _config
+    if not cfg:
+        print("No configuration loaded.", file=sys.stderr)
+        sys.exit(1)
+    info = {
+        "config_file": str(cfg.config_path) if cfg.config_path else "(none)",
+        "auth": {
+            "email": cfg.email or "(not set)",
+            "password": "****" if cfg.password else "(not set — will prompt at login)",
+        },
+        "api": {
+            "base_url": cfg.api_base_url,
+            "timeout": cfg.timeout,
+            "debug": cfg.debug,
+        },
+        "session": {
+            "session_dir": str(cfg.session_dir),
+            "session_file": str(cfg.session_file),
+            "session_exists": cfg.session_file.exists(),
+            "auto_relogin": cfg.auto_relogin,
+        },
+        "output": {
+            "format": cfg.output_format,
+            "compact_json": cfg.compact_json,
+        },
+    }
+    print_json(info)
+
+
+def cmd_config_path(args, client):
+    """Show config file path."""
+    cfg = _config
+    if cfg and cfg.config_path and cfg.config_path.exists():
+        print(cfg.config_path)
+    else:
+        from .config import CONFIG_SEARCH_PATHS
+
+        print("No config file found. Expected locations:")
+        for p in CONFIG_SEARCH_PATHS:
+            exists = "✓" if p.exists() else "✗"
+            print(f"  {exists} {p}")
+        print("\nRun 'make install-config' or copy the template manually.")
+
+
 # ── Argument parser ────────────────────────────────────────────────
 
 
@@ -680,6 +741,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging")
     parser.add_argument("--json", action="store_true", help="Output raw JSON")
+    parser.add_argument(
+        "--config",
+        "-c",
+        default=None,
+        help="Path to config file (default: ~/.config/multcloud/config.toml)",
+    )
 
     sub = parser.add_subparsers(dest="command", help="Command")
 
@@ -886,6 +953,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("endpoint", help="API endpoint path (e.g., /tasks/list)")
     p.add_argument("--data", "-d", help="JSON request body")
 
+    # config
+    config_parser = sub.add_parser("config", help="View configuration")
+    config_sub = config_parser.add_subparsers(dest="config_cmd")
+
+    config_sub.add_parser("show", help="Show current configuration")
+    config_sub.add_parser("path", help="Show config file path")
+
     return parser
 
 
@@ -940,15 +1014,22 @@ COMMAND_MAP = {
     ("team", "delete"): cmd_team_delete,
     ("subscription", "redeem"): cmd_subscription_redeem,
     ("raw", None): cmd_raw,
+    ("config", "show"): cmd_config_show,
+    ("config", "path"): cmd_config_path,
 }
 
 
 def main():
     """CLI entry point."""
+    global _config
+
     parser = build_parser()
     args = parser.parse_args()
 
-    if args.verbose:
+    # Load configuration
+    _config = load_config(getattr(args, "config", None))
+
+    if args.verbose or _config.debug:
         logging.basicConfig(level=logging.DEBUG)
     else:
         logging.basicConfig(level=logging.WARNING)
@@ -959,8 +1040,19 @@ def main():
 
     # Determine subcommand
     subcmd = None
-    for attr in ["drives_cmd", "files_cmd", "tasks_cmd", "sync_cmd", "torrent_cmd",
-                 "video_cmd", "share_cmd", "email_cmd", "team_cmd", "sub_cmd"]:
+    for attr in [
+        "drives_cmd",
+        "files_cmd",
+        "tasks_cmd",
+        "sync_cmd",
+        "torrent_cmd",
+        "video_cmd",
+        "share_cmd",
+        "email_cmd",
+        "team_cmd",
+        "sub_cmd",
+        "config_cmd",
+    ]:
         val = getattr(args, attr, None)
         if val:
             subcmd = val
@@ -968,8 +1060,19 @@ def main():
 
     handler = COMMAND_MAP.get((args.command, subcmd))
     if not handler:
-        if subcmd is None and args.command in ["drives", "files", "tasks", "sync",
-                                                 "torrent", "video", "share", "email", "team", "subscription"]:
+        if subcmd is None and args.command in [
+            "drives",
+            "files",
+            "tasks",
+            "sync",
+            "torrent",
+            "video",
+            "share",
+            "email",
+            "team",
+            "subscription",
+            "config",
+        ]:
             # Print subcommand help
             parser.parse_args([args.command, "--help"])
         print(f"Unknown command: {args.command} {subcmd or ''}", file=sys.stderr)

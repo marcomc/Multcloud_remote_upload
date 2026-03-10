@@ -9,7 +9,7 @@ MultCloud uses:
 
 import hashlib
 import json
-from base64 import b64decode, b64encode
+from base64 import b64decode
 
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad

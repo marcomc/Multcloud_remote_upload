@@ -7,6 +7,7 @@ setup(
     install_requires=[
         "pycryptodome>=3.19.0",
         "requests>=2.31.0",
+        'tomli>=2.0; python_version < "3.11"',
     ],
     extras_require={
         "dev": ["pytest>=7.0", "pytest-cov", "ruff"],

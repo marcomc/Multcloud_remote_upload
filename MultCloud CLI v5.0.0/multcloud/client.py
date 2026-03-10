@@ -20,9 +20,7 @@ log = logging.getLogger(__name__)
 
 API_BASE = "https://app.multcloud.com/api"
 WEB_BASE = "https://www.multcloud.com/api"
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0"
-)
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0"
 
 
 class MultCloudError(Exception):
@@ -166,9 +164,7 @@ class MultCloudClient:
         self.salt = user.get("salt", "")
         return user
 
-    def login_with_captcha(
-        self, email: str, password: str, vkey: str, vcode: str
-    ) -> dict:
+    def login_with_captcha(self, email: str, password: str, vkey: str, vcode: str) -> dict:
         """Sign in with email, password, and CAPTCHA verification."""
         params = {
             "email": email,
@@ -190,9 +186,11 @@ class MultCloudClient:
         Returns (vkey, image_bytes) tuple.
         """
         rand_digit = random.randint(1, 9)
-        vkey = str(rand_digit) + "".join(
-            random.choices(string.ascii_letters, k=14)
-        ) + str(9 - rand_digit)
+        vkey = (
+            str(rand_digit)
+            + "".join(random.choices(string.ascii_letters, k=14))
+            + str(9 - rand_digit)
+        )
         params = {"vkey": vkey}
         signed = crypto.sign_with_aes_key(params)
         url = f"{self.api_base}/verify_code/generate?vkey={vkey}&s={signed['s']}"
@@ -297,9 +295,7 @@ class MultCloudClient:
         }
         return self._salt_request("/files/list", params, "files")
 
-    def files_mkdir(
-        self, drive_id: str, parent_id: str, name: str, cloud_type: str = ""
-    ) -> dict:
+    def files_mkdir(self, drive_id: str, parent_id: str, name: str, cloud_type: str = "") -> dict:
         """Create a directory on a cloud drive."""
         params = {
             "ud": self._ud(),
@@ -310,9 +306,7 @@ class MultCloudClient:
         }
         return self._salt_request("/files/mkdir", params)
 
-    def files_delete(
-        self, drive_id: str, file_ids: list, cloud_type: str = ""
-    ) -> dict:
+    def files_delete(self, drive_id: str, file_ids: list, cloud_type: str = "") -> dict:
         """Delete files from a cloud drive."""
         params = {
             "ud": self._ud(),

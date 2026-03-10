@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.1.0] - 2026-03-10
+
+### Added
+- **Makefile** with install/uninstall/test/lint/fmt/clean targets (follows mcpone-cli pattern)
+- **TOML configuration** system (`~/.config/multcloud/config.toml`)
+  - Interactive `make install-config` prompts for email, password, API URL
+  - Config resolution: CLI flags > env vars > config file > defaults
+  - `multcloud config show` and `multcloud config path` subcommands
+- **Installable CLI** — `multcloud` linked to `~/.local/bin` via venv + symlink
+- **Config test suite** — 18 tests for config defaults, file discovery, TOML loading
+- `--config` / `-c` CLI flag to specify custom config file path
+- `tomli` dependency for Python <3.11 TOML support
+
+### Fixed
+- Unused imports and lint warnings across all modules
+- `config.py` Path("") bug that treated current directory as a valid config file
+- Code formatting compliance (ruff format)
+
 ## [5.0.0] - 2026-03-10
 
 ### Added

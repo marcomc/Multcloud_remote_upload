@@ -2,16 +2,14 @@
 
 import json
 
-import pytest
-
 from multcloud.crypto import (
+    DECRYPT_KEY,
+    ENCRYPT_KEY,
     aes_decrypt,
     aes_encrypt,
     sign_md5,
     sign_with_aes_key,
     sign_with_salt,
-    ENCRYPT_KEY,
-    DECRYPT_KEY,
 )
 
 
