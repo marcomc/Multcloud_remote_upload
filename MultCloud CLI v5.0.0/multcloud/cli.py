@@ -175,6 +175,53 @@ def format_size(size) -> str:
 # ── Command handlers ───────────────────────────────────────────────
 
 
+def _handle_2fa(client, email, password, cfg):
+    """Handle the 2FA (device authorization) flow interactively."""
+    challenge = client.get_dual_challenge()
+    if not challenge:
+        print("Error: No 2FA challenge data available.", file=sys.stderr)
+        sys.exit(1)
+
+    dual = challenge.get("dual", {})
+    otp = challenge.get("otp", "")
+    dual_id = dual.get("id", "")
+    dual_email = dual.get("email", email)
+    dual_phone = dual.get("smsPhone", "")
+
+    print("\n── Two-Factor Authentication Required ──")
+    print(f"  Account: {dual_email}")
+    if dual_phone:
+        print(f"  Phone:   {dual_phone}")
+
+    # Ask how to receive the code
+    method = "email"
+    if dual_phone:
+        choice = input("\nSend code via (e)mail or (s)ms? [e]: ").strip().lower()
+        if choice in ("s", "sms"):
+            method = "sms"
+
+    # Send the verification code
+    print(f"\nSending verification code via {method}...")
+    try:
+        client.dual_send_code(otp, dual_id, method)
+        print("✓ Verification code sent.")
+    except MultCloudError as e:
+        print(f"Failed to send code: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Prompt for the code
+    code = input("Enter verification code: ").strip()
+    if not code:
+        print("No code entered. Login aborted.", file=sys.stderr)
+        sys.exit(1)
+
+    # Verify the code and complete login
+    user = client.dual_verify_code(otp, dual_id, code, email, password)
+    cfg.session_dir.mkdir(parents=True, exist_ok=True)
+    client.save_session(cfg.session_file)
+    return user
+
+
 def cmd_login(args, client):
     """Handle login command."""
     cfg = _config or MultCloudConfig()
@@ -189,7 +236,11 @@ def cmd_login(args, client):
         if user.get("vip"):
             print(f"  Plan: {user.get('payType', 'N/A')} (Level {user.get('payLevel', 'N/A')})")
     except MultCloudError as e:
-        if "verifyCode" in str(e.reason):
+        if e.reason == "unauthorizedEquipment":
+            # 2FA device authorization required
+            user = _handle_2fa(client, email, password, cfg)
+            print(f"Logged in as {user.get('username', user.get('email', email))}")
+        elif "verifyCode" in str(e.reason):
             print("CAPTCHA required. Generating...")
             vkey, image_data = client.generate_captcha()
             captcha_path = cfg.session_dir / "captcha.png"

@@ -76,21 +76,39 @@ class MultCloudClient:
         """
         if not path.exists():
             return False
-        data = json.loads(path.read_text())
+        try:
+            data = json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            log.warning("Could not read session file %s: %s", path, e)
+            return False
         for cookie in data.get("cookies", []):
-            self.session.cookies.set(
-                cookie["name"],
-                cookie["value"],
-                domain=cookie["domain"],
-                path=cookie["path"],
-            )
+            try:
+                self.session.cookies.set(
+                    cookie["name"],
+                    cookie["value"],
+                    domain=cookie["domain"],
+                    path=cookie["path"],
+                )
+            except KeyError:
+                continue
         self.user = data.get("user")
         self.salt = data.get("salt")
+
+        # Detect incomplete 2FA sessions — don't try to verify them
+        if self.user and self.user.get("exception") == "unauthorizedEquipment":
+            log.debug("Session contains 2FA challenge — not valid, need re-login")
+            self.user = None
+            self.salt = None
+            return False
+
         if self.user:
             try:
+                self._ud()  # Verify we can extract a user ID
                 self.user_get()
                 return True
             except MultCloudError:
+                self.user = None
+                self.salt = None
                 return False
         return False
 
@@ -144,10 +162,28 @@ class MultCloudClient:
         return self._parse_response(resp, key)
 
     def _ud(self) -> str:
-        """Get the current user's ID."""
+        """Get the current user's ID.
+
+        Handles multiple response shapes from MultCloud:
+        - user.id (normal login)
+        - user.dual.id (2FA challenge response)
+        - user.userId (alternative key)
+        """
         if not self.user:
             raise MultCloudError(401, "Not authenticated.")
-        return self.user["id"]
+        uid = self.user.get("id")
+        if not uid:
+            dual = self.user.get("dual")
+            if isinstance(dual, dict):
+                uid = dual.get("id") or dual.get("userId")
+        if not uid:
+            uid = self.user.get("userId")
+        if not uid:
+            raise MultCloudError(
+                401,
+                "No user ID found in session. Try logging in again: multcloud login",
+            )
+        return uid
 
     # ── Authentication ────────────────────────────────────────────────
 
@@ -155,9 +191,22 @@ class MultCloudClient:
         """Sign in with email and password.
 
         Returns user data dict on success.
+        Raises MultCloudError with reason='unauthorizedEquipment' if 2FA required.
         """
         params = {"email": email, "password": password, "rememberMe": True}
         resp = self._post_aes("/user/sign_in_", params)
+
+        # Check for 2FA challenge before standard response parsing
+        exc = resp.get("exception", "")
+        if exc == "unauthorizedEquipment":
+            # Store the 2FA challenge data for the verify step
+            self._dual_challenge = resp
+            raise MultCloudError(
+                resp.get("status", 400),
+                "Device not authorized — 2FA verification required.",
+                reason="unauthorizedEquipment",
+            )
+
         data = self._parse_response(resp)
         user = data.get("user", data)
         self.user = user
@@ -197,6 +246,58 @@ class MultCloudClient:
         resp = self.session.get(url, stream=True, timeout=30)
         resp.raise_for_status()
         return vkey, resp.content
+
+    # ── Two-Factor Authentication (2FA) ────────────────────────────
+
+    def dual_send_code(self, otp: str, dual_id: str, method: str = "email") -> dict:
+        """Send 2FA verification code to user's email or phone.
+
+        Args:
+            otp: The OTP token from the login challenge response.
+            dual_id: The dual.id from the login challenge response.
+            method: 'email' or 'sms'. Defaults to 'email'.
+
+        Returns:
+            API response dict.
+        """
+        params = {"otp": otp, "dualId": dual_id, "type": method}
+        resp = self._post_aes("/dual_verify/send_code", params)
+        return self._parse_response(resp)
+
+    def dual_verify_code(
+        self, otp: str, dual_id: str, code: str, email: str, password: str
+    ) -> dict:
+        """Verify the 2FA code and complete login.
+
+        Args:
+            otp: The OTP token from the login challenge response.
+            dual_id: The dual.id from the login challenge response.
+            code: The verification code received via email/SMS.
+            email: Account email address.
+            password: Account password.
+
+        Returns:
+            User data dict on success.
+        """
+        params = {
+            "otp": otp,
+            "dualId": dual_id,
+            "code": code,
+            "email": email,
+            "password": password,
+            "rememberMe": True,
+        }
+        resp = self._post_aes("/dual_verify/verify_code", params)
+        data = self._parse_response(resp)
+        user = data.get("user", data)
+        self.user = user
+        self.salt = user.get("salt", "")
+        self._dual_challenge = None
+        return user
+
+    def get_dual_challenge(self) -> Optional[dict]:
+        """Return the stored 2FA challenge data, if any."""
+        return getattr(self, "_dual_challenge", None)
 
     def direct_sign_in(self) -> dict:
         """Re-authenticate using stored session data."""
