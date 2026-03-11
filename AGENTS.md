@@ -18,16 +18,23 @@ internal (reverse-engineered) API.
 │   │   ├── __main__.py      # python -m multcloud entry point
 │   │   ├── crypto.py        # AES encryption/decryption + MD5 request signing
 │   │   ├── client.py        # MultCloudClient - all API endpoint methods
+│   │   ├── config.py        # TOML config loading + defaults
 │   │   └── cli.py           # argparse CLI with all commands
 │   ├── scripts/
 │   │   └── reverse_engineer_api.py  # Script to re-extract API from JS bundle
-│   ├── tests/               # Test suite
+│   ├── tests/
+│   │   ├── test_crypto.py   # 17 crypto tests
+│   │   └── test_config.py   # 18 config tests
+│   ├── Makefile             # install/uninstall/test/lint/fmt/clean targets
+│   ├── .multcloud.toml.example  # Config template for make install-config
 │   ├── pyproject.toml       # Python packaging config
+│   ├── setup.py             # Setuptools fallback for older pip
 │   └── requirements.txt     # Dependencies
 ├── docs/
 │   ├── API_REFERENCE.md     # Full API endpoint documentation
 │   ├── CLI_USAGE.md         # CLI usage guide with examples
 │   └── REVERSE_ENGINEERING.md # How to update the API when MultCloud changes
+├── .markdownlint.json       # Markdownlint config (MD013 line length disabled)
 ├── API_ANALYSIS.md          # Summary of reverse-engineering findings
 ├── AGENTS.md                # This file - project context for AI agents
 ├── TODO.md                  # Remaining work items
@@ -63,13 +70,31 @@ internal (reverse-engineered) API.
 
 ```bash
 cd "MultCloud CLI v5.0.0"
-pip install -e ".[dev]"
-multcloud --help
+make install      # Create venv, install deps, link to ~/.local/bin, seed config
+make test         # Run pytest suite
+make lint         # Run ruff linter
+make fmt          # Auto-format with ruff
+make uninstall    # Remove symlink from ~/.local/bin
+make clean        # Remove venv and build artifacts
+```
+
+## Markdown Linting
+
+All markdown files in this repo must be linted before committing.
+The `.markdownlint.json` config at the repo root disables MD013 (line length).
+
+```bash
+# Lint all markdown files
+markdownlint '**/*.md'
+
+# Or with npx if not installed globally
+npx markdownlint-cli '**/*.md'
 ```
 
 ## When MultCloud Updates Their Frontend
 
 Run the reverse-engineering script:
+
 ```bash
 python scripts/reverse_engineer_api.py --output ../docs/ --diff --verbose
 ```
@@ -78,6 +103,8 @@ This will detect changes in AES keys, endpoints, and cloud types. See
 `docs/REVERSE_ENGINEERING.md` for the full manual process.
 
 ## Dependencies
-- Python >= 3.10
+
+- Python >= 3.9
 - pycryptodome (AES encryption)
 - requests (HTTP client)
+- tomli (TOML parsing for Python < 3.11)

@@ -3,6 +3,7 @@
 import os
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 from multcloud.config import (
     DEFAULT_API_URL,
@@ -12,6 +13,9 @@ from multcloud.config import (
     find_config_file,
     load_config,
 )
+
+# Use an empty search paths list to isolate tests from real user config
+EMPTY_SEARCH_PATHS = []
 
 
 class TestMultCloudConfigDefaults:
@@ -61,8 +65,9 @@ class TestMultCloudConfigDefaults:
 class TestFindConfigFile:
     """Test config file discovery."""
 
+    @patch("multcloud.config.CONFIG_SEARCH_PATHS", EMPTY_SEARCH_PATHS)
     def test_returns_none_when_no_config_exists(self):
-        # Use a path that definitely doesn't exist
+        # Use a path that definitely doesn't exist, with no fallback paths
         result = find_config_file("/nonexistent/path/config.toml")
         assert result is None
 
@@ -92,6 +97,7 @@ class TestFindConfigFile:
 class TestLoadConfig:
     """Test TOML config loading."""
 
+    @patch("multcloud.config.CONFIG_SEARCH_PATHS", EMPTY_SEARCH_PATHS)
     def test_load_defaults_when_no_file(self):
         cfg = load_config("/definitely/not/a/real/path.toml")
         assert cfg.email == ""
